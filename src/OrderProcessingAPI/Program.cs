@@ -27,9 +27,8 @@ builder.Host.UseWolverine(opts =>
         .AutoProvision();
     opts.PublishMessage<SubmitOrderCommand>().ToRabbitQueue("orders");
     opts.ListenToRabbitQueue("orders");
-            opts.ApplicationAssembly = typeof(Program).Assembly;
+    opts.ApplicationAssembly = typeof(Program).Assembly;
     Console.WriteLine(opts.DescribeHandlerMatch(typeof(OrderHandlers)));
-
 });
 
 var app = builder.Build();
