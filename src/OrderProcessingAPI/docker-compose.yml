@@ -1,50 +1,31 @@
-version: '3.9'
-
+version: '3.7'
 services:
+  order-processing-api:
+    build: .
+    restart: always
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Development"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=orderdb;Username=postgres;Password=postgres"
+      RabbitMQ__Uri: "amqp://guest:guest@rabbitmq:5672"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - rabbitmq
   postgres:
     image: postgres:16
-    container_name: postgres
     environment:
-      POSTGRES_DB: ordersdb
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: "orderdb"
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "postgres"
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
+      - pgdata:/var/lib/postgresql/data
   rabbitmq:
     image: rabbitmq:3-management
-    container_name: rabbitmq
     ports:
       - "5672:5672"
       - "15672:15672"
-    healthcheck:
-      test: rabbitmq-diagnostics -q ping
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  order-processing-api:
-    build: .
-    container_name: order-processing-api
-    ports:
-      - "5000:8080"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=ordersdb;Username=postgres;Password=postgres
-      - RabbitMQ__Host=rabbitmq
-      - RabbitMQ__Queue=order-processing-queue
-
 volumes:
-  postgres_data:
+  pgdata:

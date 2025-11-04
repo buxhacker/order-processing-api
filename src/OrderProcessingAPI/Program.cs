@@ -1,13 +1,45 @@
+using Microsoft.EntityFrameworkCore;
+using OrderProcessingAPI.Commands;
+using OrderProcessingAPI.Data;
+using OrderProcessingAPI.Enums;
+using OrderProcessingAPI.Handlers;
+using OrderProcessingAPI.Interfaces;
+using OrderProcessingAPI.Models;
+using OrderProcessingAPI.Services;
+using Wolverine;
+using Wolverine.EntityFrameworkCore;
+using Wolverine.RabbitMQ;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+builder.Services.AddDbContext<OrderDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+builder.Services.AddSingleton<IDiscountProvider, DiscountProvider>();
+
+builder.Host.UseWolverine(opts =>
+{
+    opts.UseEntityFrameworkCoreTransactions();
+    opts.UseRabbitMq(builder.Configuration["RabbitMQ:Uri"]!)
+        .AutoProvision();
+    opts.PublishMessage<SubmitOrderCommand>().ToRabbitQueue("orders");
+    opts.ListenToRabbitQueue("orders");
+            opts.ApplicationAssembly = typeof(Program).Assembly;
+    Console.WriteLine(opts.DescribeHandlerMatch(typeof(OrderHandlers)));
+
+});
+
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<OrderDbContext>();
+    db.Database.Migrate();
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -16,29 +48,34 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
 
-app.MapGet("/weatherforecast", () =>
+app.MapPost("/api/orders", async (
+    SubmitOrderRequest request,
+    OrderDbContext db,
+    IMessageBus bus) =>
 {
-    var forecast = Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
+    var order = new Order
+    {
+        CustomerId = request.CustomerId,
+        TotalAmount = request.TotalAmount,
+        Status = OrderStatus.New.ToString()
+    };
+    order.Items = [.. request.Items.Select(i => new OrderItem
+    {
+        Name = i.Name,
+        Quantity = i.Quantity,
+        Price = i.Price,
+        OrderId = order.Id
+    })];
+
+    db.Orders.Add(order);
+    await db.SaveChangesAsync();
+
+    await bus.PublishAsync(new SubmitOrderCommand(order.Id));
+
+    return Results.Accepted($"/api/orders/{order.Id}", new { order.Id });
 })
-.WithName("GetWeatherForecast")
+.WithName("Orders")
 .WithOpenApi();
 
 app.Run();
-
-internal record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
