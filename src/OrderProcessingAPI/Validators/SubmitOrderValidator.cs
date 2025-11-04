@@ -18,7 +18,7 @@ public class SubmitOrderValidator
         if (order.TotalAmount <= 0)
             return ValidationResult.Fail($"Invalid TotalAmount: {order.TotalAmount}");
 
-        if (order.Items == null || !order.Items.Any())
+        if (order.Items == null || order.Items.Count == 0)
         {
             return ValidationResult.Fail("No items specified.");
         }
